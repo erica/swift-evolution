@@ -9,7 +9,7 @@
 
 This proposal introduces an annotated forced unwrapping operator to the Swift standard library, augmenting the `?`, `??`, and `!` family with `!!`. The "unwrap or die" operator provides text feedback on failed unwraps. It supports self-documentation and safer development. This operator is commonly implemented in the wider Swift Community and should be considered for official adoption.
 
-The "Unwrap or Die" operator introduces a new `!!` operator that benefits both experienced and new Swift users. It takes this form:
+The new "Unwrap or Die" operator, `!!`, benefits both experienced and new Swift users. It takes this form:
 
 ```let value = wrappedValue !! <# "Explanation why lhs cannot be nil." #>```
 
@@ -39,7 +39,7 @@ Adopting this operator:
 
 ## Motivation
 
-"Unwrap or Die" has been widely adopted in the Swift community. This approach provides a best practices approach that establishes informative run-time diagnostics with compiler-checked rationales (the rhs is mandatory). Requiring a string on the rhs rather than relying on comments conveys the reason why the value cannot be nil from source to the console should the underlying guarantee fail at runtime. This produces "better" failures with explicit explanations. If you’re going to write a comment, why not make that comment useful for debugging at the same time?
+"Unwrap or Die" has been widely adopted in the Swift community. This approach provides a best practices approach that establishes informative run-time diagnostics with compiler-checked rationales (the rhs is mandatory). Relying solely on comments only conveys in the source code itself the reason why the developer thinks the value cannot be nil. Requiring a string on the rhs of `!!` provides useful information all the way from source to the console should the underlying guarantee fail at runtime. This produces "better" failures with explicit explanations. If you’re going to write a comment, why not make that comment useful for debugging at the same time?
 
 ### The Naive User / Fixit Problem
 
@@ -54,9 +54,9 @@ let resourceData = try String(contentsOf: url, encoding: .utf8)
 // Fix: Insert '!'
 ```
 
-Experienced developers easily distinguish whether an unwrapped value reflects an overlooked unwrap, in which case they rearchitect to introduce a better pattern, or if the value-in-question is guaranteed to never contain nil. 
+Experienced developers easily distinguish whether an optional value reflects an overlooked error condition, in which case they rearchitect to introduce a better pattern, or if the value in question is guaranteed to never contain nil. 
 
-Inexperienced developers, unless they’re moving from a language with similar constructs, usually will not. They’re focused on getting past a compilation barrier, without realizing the hazard of nil values at the point of use. 
+Inexperienced developers, unless they’re moving from a language with similar constructs, usually will not make such distinctions. They’re focused on getting past a compilation barrier, without realizing the hazard of nil values at the point of use. 
 
 Quincey Morris writes with respect to the `url` example:
 
@@ -92,7 +92,7 @@ guard let url = URL(string: destination) else {
 }
 ```
 
-As Quincey points out, Swift's "Add !" is a syntactic fix not a semantic one. Encourging the unconsidered use of `!` insertion leads to poorly designed code. The `!` fixit should not be used as a bandaid to make things compile. 
+As Quincey points out, Swift's "Add !" is a syntactic fix, not a semantic one. Encourging the unconsidered use of `!` insertion leads to poorly designed code. The `!` fixit should not be used as a bandaid to make things compile. 
 
 Swift encourages users to accept each fix until their program compiles but Swift cannot holistically evaluate user code intent. It cannot recommend or fixit a `guard let` or `if let` alternative at a specific disjoint location. 
 
@@ -145,6 +145,49 @@ let existing = childViewControllers as? Array<TableRowViewController>
 
 This pattern extends to any type-erased or superclass where a cast will always be valid.
 
+## Examples of Real-World Use
+
+Here are a variety of examples that demonstrate the `!!` operator in real-world use:
+
+```swift
+// In a right-click gesture recognizer action handler
+let event = NSApp.currentEvent !! "Trying to get current event for right click, but there's no event"
+
+// In a custom view controller subclass that only 
+// accepts children of a certain kind:
+let existing = childViewControllers as? Array<TableRowViewController> !! "TableViewController must only have TableRowViewControllers as children"
+
+// Providing a value based on an initializer that returns an optional:
+lazy var sectionURL: URL = {
+    return URL(string: “myapp://section/\(identifier)")
+        !! "can't create URL for section \(identifier)"
+}()
+
+// Retrieving an image from an embedded framework:
+private static let addImage: NSImage = {
+    let bundle = Bundle(for: FlagViewController.self)
+    let image = bundle.image(forResource: "add") !! "Missing 'add' image"
+    image.isTemplate = true
+    return image
+}()
+
+// Asserting consistency of an internal model:
+let flag = command.flag(with: flagID) !! "Unable to retrieve non-custom flag for id \(flagID.string)"
+
+// drawRect:
+override draw(_ rect: CGRect) {
+    let context = UIGraphicsGetCurrentContext() !! "`drawRect` context guarantee was breeched"
+}
+```
+
+The `!!` operator generally falls in two groups:
+
+1. Asserting System Framework Correctness: The `NSApp.currentEvent` property returns an `Optional<NSEvent>` as there’s not always a current event going on. It is always safe to assert an actual event in the action handler of a right-click gesture recognizer. If this ever fails, `!!` provides an immediately and clear description of where the system framework has not worked according to expectations.
+
+2. Asserting Application Logic Correctness: The `!!` operator ensures that outlets are properly hooked up and that the internal data model is in a consistent state. The related error messages  explicitly mention specific outlet and data details.
+
+These areas identify when resources haven't been added to the right target, when a URL has been mis-entered, or when a model update has not propagated completely to its supporting use. Incorporating a diagnostic message, provides immediate feedback as to why the code is failing and where.
+
 ## On Forced Unwraps
 
 This proposal _does not_ eliminate or prejudge the `!`operator. Using `!!` should be a positive house standards choice, especially when the use of explanatory text becomes cumbersome.
@@ -196,7 +239,7 @@ let y = x! // reason
 
 Although comments document in-code reasoning, these explanations are not emitted when the application traps on the forced unwrap:
 
-> As the screener of a non-zero number of radars resulting from unwrapped nils, I would certainly appreciate more use of `guard let x = x else { fatalError(“explanation”) }` and hope that `!!` would encourage it.
+> As the screener of a non-zero number of radars resulting from unwrapped nils, I would certainly appreciate more use of `guard let x = x else { fatalError("explanation") }` and hope that `!!` would encourage it.
 
 Sometimes it’s not necessary to explain your use of a forced unwrap. In those cases the normal `!` operator will remain, even after the introduction of `!!`. You can continue using `!`, as before, just as you can leave off the string from a precondition.
 
@@ -267,46 +310,6 @@ By following `Optional.unsafelyUnwrapped`, this approach is consistent with Swif
 Like `assert`, `unsafelyUnwrapped` does not perform a check in optimized builds. The forced unwrap `!` operator does as does `precondition`. The "unwrap or die" `!!` operator should behave like `precondition` and not `assert` to preserve trapping information in optimized builds.
 
 Unfortunately, there is no direct way at this time to emit the `#file` name and `#line` number with the above code. We hope the dev team can somehow work around this limitation to produce that information at the `!!` site.
-
-## Examples of Real-World Use
-
-Here are a variety of examples that demonstrate the `!!` operator in real-world use:
-
-```swift
-// In a right-click gesture recognizer action handler
-let event = NSApp.currentEvent !! "Trying to get current event for right click, but there's no event”
-
-// In a custom view controller subclass that only 
-// accepts children of a certain kind:
-let existing = childViewControllers as? Array<TableRowViewController> !! "TableViewController must only have TableRowViewControllers as children"
-
-// Providing a value based on an initializer that returns an optional:
-lazy var emptyURL: URL = { return URL(string: “myapp://section/\(identifier)") !! "can't create basic empty url” }()
-
-// Retrieving an image from an embedded framework:
-private static let addImage: NSImage = {
-    let bundle = Bundle(for: FlagViewController.self)
-    let image = bundle.image(forResource: "add") !! "Missing 'add' image"
-    image.isTemplate = true
-    return image
-}()
-
-// Asserting consistency of an internal model:
-let flag = command.flag(with: flagID) !! "Unable to retrieve non-custom flag for id \(flagID.string)"
-
-// drawRect:
-override draw(_ rect: CGRect) {
-    let context = UIGraphicsGetCurrentContext() !! "`drawRect` context guarantee was breeched"
-}
-```
-
-The `!!` operator generally falls in two groups:
-
-1. Asserting System Framework Correctness: The `NSApp.currentEvent` property returns an `Optional<NSEvent>` as there’s not always a current event going on. It is always safe to assert an actual event in the action handler of a right-click gesture recognizer. If this ever fails, `!!` provides an immediately and clear description of where the system framework has not worked according to expectations.
-
-2. Asserting Application Logic Correctness: The `!!` operator ensures that outlets are properly hooked up and that the internal data model is in a consistent state. The related error messages  explicitly mention specific outlet and data details.
-
-These areas identify when resources haven't been added to the right target, when a URL has been mis-entered, or when a model update has not propagated completely to its supporting use. Incorporating a diagnostic message, provides immediate feedback as to why the code is failing and where.
 
 ## The Black Swan Deployment
 
