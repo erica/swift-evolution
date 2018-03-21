@@ -66,6 +66,7 @@ if let value = result {
   }
   Fatal.unreachable("Should never get here") // Dave DeLong's Fatal umbrella type
 }
+```
 
 ## Impact on Existing Code
 
